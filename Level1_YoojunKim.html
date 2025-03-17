@@ -143,11 +143,20 @@
 
             // Function to toggle between max and min temperature visualization
             window.toggleTemperature = function () {
-                showMax = !showMax;
-                update();
+            showMax = !showMax;
+            
+            svg.selectAll(".cell")
+                .transition().duration(500) // Smooth transition for better visualization
+                .attr("fill", d => {
+                    if (showMax) {
+                        return d.max !== undefined ? colorScale(d.max) : "none";
+                    } else {
+                        return d.min !== undefined ? colorScale(d.min) : "none";
+                    }
+                });
 
-                // Update button text dynamically
-                d3.select(".toggle-button").text(showMax ? "Show Min Temperature" : "Show Max Temperature");
+            // Update button text dynamically
+            d3.select(".toggle-button").text(showMax ? "Show Min Temperature" : "Show Max Temperature");
             };
 
             // Create discrete color legend
