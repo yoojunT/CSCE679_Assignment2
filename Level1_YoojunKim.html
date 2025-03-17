@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Temperature Matrix</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; }
+        .tooltip { 
+            position: absolute; 
+            background: white; 
+            border: 1px solid black; 
+            padding: 5px; 
+            display: none; 
+        }
+        .toggle-button {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 8px 15px;
+            font-size: 14px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <button class="toggle-button" onclick="toggleTemperature()">Show Min Temperature</button>
+
+    <script>
+        /// The initial outline was assisted by ChatGPT, and I refined the details regarding hover texts, cell size, colormap range, and the x and y axes to align with the assignment criteria.
+        // Set up dimensions and margins
+        const margin = {top: 100, right: 120, bottom: 50, left: 100};
+        const width = 1000 - margin.left - margin.right;
+        const height = 600 - margin.top - margin.bottom;
+
+        // Create SVG container
+        const svg = d3.select("body").append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+        .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        let showMax = true; // Toggle state (default: show max temperature)
+
+        // Load data
+        const dataFile = "temperature_daily.csv";
+        d3.csv(dataFile).then(data => {
+            data.forEach(d => {
+                d.date = new Date(d.date);
+                d.year = d.date.getFullYear();
+                d.month = d.date.getMonth() + 1;
+                d.max_temperature = +d.max_temperature;
+                d.min_temperature = +d.min_temperature;
+            });
+
+            // Filter out year 1996
+            data = data.filter(d => d.year > 1996);
+
+            // Aggregate data
+            const nestedData = d3.rollup(data, 
+                v => ({
+                    max: d3.max(v, d => d.max_temperature),
+                    min: d3.min(v, d => d.min_temperature)
+                }), 
+                d => d.year, d => d.month
+            );
+
+            // Extract unique years and months
+            const years = Array.from(new Set(data.map(d => d.year))).sort();
+            const months = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+            // Define exact colors and corresponding temperature thresholds
+            const discreteColors = [
+                { value: 0, color: "#5E4FA2" },  
+                { value: 5, color: "#3288BD" },  
+                { value: 10, color: "#66C2A5" }, 
+                { value: 15, color: "#FFFFBF" }, 
+                { value: 20, color: "#FEE08B" }, 
+                { value: 25, color: "#FDAE61" }, 
+                { value: 30, color: "#F46D43" }, 
+                { value: 35, color: "#D53E4F" }, 
+                { value: 40, color: "#9E0142" }  
+            ];
+
+            const colorScale = d3.scaleThreshold()
+                .domain(discreteColors.map(d => d.value))
+                .range(discreteColors.map(d => d.color));
+
+            // Scales
+            const xScale = d3.scaleBand().domain(years).range([0, width]).padding(0.16);
+            const yScale = d3.scaleBand().domain(months).range([0, height]).padding(0.16);
+
+            // Axes
+            svg.append("g").attr("transform", `translate(0,0)`).call(d3.axisTop(xScale).tickFormat(d3.format("d")));
+            svg.append("g").call(d3.axisLeft(yScale).tickFormat(d => d3.timeFormat("%B")(new Date(2000, d - 1, 1))));
+
+            // Tooltip
+            const tooltip = d3.select("body").append("div")
+                .attr("class", "tooltip");
+
+            // Function to update matrix
+            const update = () => {
+                svg.selectAll(".cell").remove();
+
+                svg.selectAll(".cell")
+                    .data(years.flatMap(year => months.map(month => {
+                        const values = nestedData.get(year)?.get(month);
+                        return { 
+                            year, 
+                            month, 
+                            max: values?.max, 
+                            min: values?.min 
+                        };
+                    })))
+                    .enter()
+                    .append("rect")
+                    .attr("class", "cell")
+                    .attr("x", d => xScale(d.year))
+                    .attr("y", d => yScale(d.month))
+                    .attr("width", xScale.bandwidth())
+                    .attr("height", yScale.bandwidth())
+                    .attr("fill", d => d.max !== undefined ? colorScale(d.max) : "none")
+                    .on("mouseover", (event, d) => {
+                        if (d.max !== undefined && d.min !== undefined) {
+                            tooltip.style("display", "block")
+                                .html(`Date: ${d.year}-${String(d.month).padStart(2, '0')}, max: ${d.max} min: ${d.min}`)
+                                .style("left", `${event.pageX + 10}px`)
+                                .style("top", `${event.pageY - 10}px`);
+                        }
+                    })
+                    .on("mouseout", () => tooltip.style("display", "none"));
+            };
+
+            // Initial render
+            update();
+
+            // Function to toggle between max and min temperature visualization
+            window.toggleTemperature = function () {
+                showMax = !showMax;
+                update();
+
+                // Update button text dynamically
+                d3.select(".toggle-button").text(showMax ? "Show Min Temperature" : "Show Max Temperature");
+            };
+
+            // Create discrete color legend
+            const legendWidth = 20;
+            const legendHeight = 150;
+            const legendX = width + 20;
+            const legend = svg.append("g")
+                .attr("transform", `translate(${legendX}, 0)`);
+
+            // Draw discrete color blocks
+            legend.selectAll("rect")
+                .data(discreteColors)
+                .enter().append("rect")
+                .attr("x", 0)
+                .attr("y", (d, i) => (i * legendHeight) / discreteColors.length)
+                .attr("width", legendWidth)
+                .attr("height", legendHeight / discreteColors.length)
+                .attr("fill", d => d.color);
+
+            // Legend axis labels
+            legend.append("text")
+                .attr("x", legendWidth + 5)
+                .attr("y", 10)
+                .attr("text-anchor", "start")
+                .attr("alignment-baseline", "middle")
+                .style("font-size", "12px")
+                .text("0 Celsius");
+
+            legend.append("text")
+                .attr("x", legendWidth + 5)
+                .attr("y", legendHeight)
+                .attr("text-anchor", "start")
+                .attr("alignment-baseline", "middle")
+                .style("font-size", "12px")
+                .text("40 Celsius");
+        });
+    </script>
+</body>
+</html>
